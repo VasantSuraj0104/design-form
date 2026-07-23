@@ -74,6 +74,12 @@ input[type=date].line{min-height:38px}
   padding:13px 14px;outline:none;transition:border-color .15s ease;
 }
 textarea.box{resize:vertical;min-height:112px;line-height:1.6}
+.brief{border:1px solid var(--line)}
+.brief .bl{display:grid;grid-template-columns:186px 1fr;border-top:1px solid var(--line-soft)}
+.brief .bl:first-child{border-top:none}
+.brief .bk{font-size:12px;letter-spacing:.04em;color:var(--muted);padding:11px 13px;background:rgba(17,17,17,.03);user-select:none}
+.brief .bv{border:none;outline:none;background:transparent;font-family:var(--sans);font-size:14.5px;color:var(--ink);padding:11px 13px;resize:none;line-height:1.5;min-height:41px;overflow:hidden}
+@media(max-width:440px){.brief .bl{grid-template-columns:1fr}.brief .bk{padding-bottom:0;background:transparent}}
 .box:hover{border-color:rgba(17,17,17,.5)}
 .box:focus{border-color:var(--black)}
 
@@ -244,7 +250,7 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
 
       <div class="field" data-name="brief">
         <div class="lab">Brief <span class="opt">Optional</span></div>
-        <textarea class="box" id="brief" rows="9" spellcheck="true"></textarea>
+        <div class="brief" id="briefGrid"></div>
       </div>
 
       <button class="submit" type="button" id="submit">Submit request</button>
@@ -275,23 +281,26 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
   /* EDIT ME — paste the Production URL from the Webhook node of the
      "Design tasks -> Notion + Slack" n8n workflow.
      Looks like: https://<your-n8n>/webhook/design-ticket */
-  const WEBHOOK_URL = "https://n8n-api.factors.app/webhook/design-ticket";
+  const WEBHOOK_URL = "PASTE_YOUR_N8N_PRODUCTION_WEBHOOK_URL_HERE";
 
   /* EDIT ME — your marketing team for the "Assigned by" dropdown */
-  const MARKETERS = ["Aditi","Rahul","Priya","Karthik","Sneha","Arjun","Meera","Vivek","Ananya","Rohan"];
+  const MARKETERS = [
+    "Mansi Peswani","Aditi Shinde","Darshan Divakar","Tushar Chaudhary","Praveen Das",
+    "Amith Manoj","Nantha","Subiksha","Vasant Suraj","Vishnu Baliga"
+  ];
 
   /* Fill-in scaffold pre-loaded into the Brief field */
-  const BRIEF_TEMPLATE = [
-    "Channels (where it'll be used): ",
-    "Dimensions: ",
-    "Format: ",
-    "Creative brief: ",
-    "Must-haves: ",
-    "What does success look like: ",
-    "Notes: ",
-    "Links: ",
-    "Anything else: "
-  ].join("\n");
+  const BRIEF_FIELDS = [
+    "Channels (where it'll be used)",
+    "Dimensions",
+    "Format",
+    "Creative brief",
+    "Must-haves",
+    "What does success look like",
+    "Notes",
+    "Links",
+    "Anything else"
+  ];
 
   const $ = s => document.querySelector(s);
 
@@ -306,12 +315,29 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
   /* deadline can't be in the past */
   $("#due").min = new Date().toISOString().slice(0,10);
 
-  /* preload the Brief scaffold */
-  $("#brief").value = BRIEF_TEMPLATE;
-  const briefUntouched = () => {
-    const strip = s => s.split("\n").map(l => l.replace(/\s+$/,"")).join("\n").trim();
-    return strip($("#brief").value) === strip(BRIEF_TEMPLATE);
-  };
+  /* Brief: labels are fixed markup, only the values are typeable */
+  const briefGrid = $("#briefGrid");
+  BRIEF_FIELDS.forEach((label, i) => {
+    const row = document.createElement("div");
+    row.className = "bl";
+    const k = document.createElement("div");
+    k.className = "bk"; k.textContent = label;
+    const v = document.createElement("textarea");
+    v.className = "bv"; v.rows = 1; v.dataset.k = label; v.id = "bv" + i;
+    v.addEventListener("input", () => {
+      v.style.height = "auto"; v.style.height = v.scrollHeight + "px";
+      clearErr("brief");
+    });
+    row.appendChild(k); row.appendChild(v);
+    briefGrid.appendChild(row);
+  });
+  const briefValues = () => [...briefGrid.querySelectorAll(".bv")];
+  const briefText = () => briefValues()
+    .map(v => [v.dataset.k, v.value.trim()])
+    .filter(([, val]) => val)
+    .map(([k, val]) => k + ": " + val)
+    .join("\n");
+  const briefUntouched = () => briefText() === "";
 
   /* Assigned by → reveal "Other" details */
   const assigned = $("#assigned");
@@ -365,7 +391,7 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
   }
 
   /* clear errors on edit */
-  ["name","otherName","otherTeam","due","link","brief"].forEach(id =>
+  ["name","otherName","otherTeam","due","link"].forEach(id =>
     $("#"+id).addEventListener("input", () => clearErr(fieldNameFor(id)))
   );
   function fieldNameFor(id){ return (id === "otherName" || id === "otherTeam") ? "other" : id; }
@@ -384,7 +410,7 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
       due: $("#due").value,
       type: $("#type").value,
       link: $("#link").value.trim(),
-      brief: $("#brief").value.trim()
+      brief: briefText()
     };
     const checks = [
       ["name",  !!v.name],
@@ -546,7 +572,7 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
   /* start over */
   $("#again").addEventListener("click", () => {
     $("#f").reset();
-    $("#brief").value = BRIEF_TEMPLATE;
+    briefValues().forEach(v => { v.value = ""; v.style.height = "auto"; });
     prio = "";
     [...prioEl.children].forEach(c => c.classList.remove("on"));
     files.length = 0; renderThumbs();
