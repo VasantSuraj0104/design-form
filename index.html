@@ -231,9 +231,9 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
       </div>
 
       <div class="field" data-name="link">
-        <div class="lab">Content link <span class="req">*</span></div>
+        <div class="lab">Content link <span class="opt">Optional</span></div>
         <input class="line" id="link" placeholder="https://…" autocomplete="off" inputmode="url"/>
-        <p class="errmsg">Paste a valid link (with a domain).</p>
+        <p class="errmsg">That doesn't look like a link — paste a full URL or leave it empty.</p>
       </div>
 
       <div class="field" data-name="refs">
@@ -418,7 +418,8 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
       ["prio",  !!prio],
       ["due",   !!v.due],
       ["type",  !!v.type],
-      ["link",  !!v.link && looksLikeLink(v.link)]
+      /* Content link is optional — only checked when something's typed in */
+      ["link",  !v.link || looksLikeLink(v.link)]
     ];
     if(v.assigned === "Other") checks.push(["other", !!v.otherName && !!v.otherTeam]);
 
@@ -535,9 +536,9 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
       ["From", requester],
       ["Priority", prioLabel],
       ["Due", prettyDate(v.due)],
-      ["Type", v.type],
-      ["Content", v.link]
+      ["Type", v.type]
     ];
+    if(v.link) rows.push(["Content", v.link]);
     if(v.brief && !briefUntouched()) rows.push(["Brief", v.brief]);
     if(files.length) rows.push(["References", files.length + " image" + (files.length>1?"s":"") + " uploaded to Notion"]);
     if(notionUrl) rows.push(["Notion", notionUrl]);
