@@ -112,6 +112,15 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
 .thumb img{width:100%;height:100%;object-fit:cover;display:block;filter:none}
 .thumb .x{position:absolute;top:0;right:0;width:19px;height:19px;background:var(--black);color:#fff;border:none;border-radius:0;cursor:pointer;font-size:12px;line-height:19px;padding:0}
 
+/* file list (Files field) */
+.flist{margin-top:13px;border:1px solid var(--line);display:none}
+.flist.has{display:block}
+.frow{display:flex;align-items:center;gap:12px;padding:10px 13px;border-top:1px solid var(--line-soft)}
+.frow:first-child{border-top:none}
+.frow .fn{flex:1;min-width:0;font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frow .fs{font-size:12px;color:var(--faint);white-space:nowrap}
+.frow .x{width:19px;height:19px;flex:none;background:var(--black);color:#fff;border:none;border-radius:0;cursor:pointer;font-size:12px;line-height:19px;padding:0}
+
 /* validation */
 .field.err .line,.field.err .box{border-color:var(--black)}
 .field.err .line{box-shadow:0 1px 0 0 var(--black)}
@@ -246,6 +255,18 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
         <input type="file" id="file" accept="image/*" multiple hidden/>
         <div class="thumbs" id="thumbs"></div>
         <p class="hint" id="refnote">Uploaded straight to the Notion page. Up to 5 MB each.</p>
+      </div>
+
+      <div class="field" data-name="docs">
+        <div class="lab">Files <span class="opt">Optional</span></div>
+        <div class="drop" id="docDrop" role="button" tabindex="0" aria-label="Attach files">
+          <div class="plus">+</div>
+          <div class="t">Attach files</div>
+          <span class="s">PDF · DOC · PPT · XLS · ZIP</span>
+        </div>
+        <input type="file" id="docFile" multiple hidden/>
+        <div class="flist" id="flist"></div>
+        <p class="hint" id="docnote">Attached to the File 1 column in Notion. Up to 5 MB each.</p>
       </div>
 
       <div class="field" data-name="brief">
@@ -390,6 +411,42 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
     });
   }
 
+  /* Files field — any file type, sent as base64 on submit → Notion "File 1" column */
+  const DOC_HINT = "Attached to the File 1 column in Notion. Up to 5 MB each.";
+  const docs = [];
+  const docInput = $("#docFile"), docDrop = $("#docDrop"), flist = $("#flist");
+  docDrop.addEventListener("click", () => docInput.click());
+  docDrop.addEventListener("keydown", e => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); docInput.click(); } });
+  docInput.addEventListener("change", () => {
+    const tooBig = [];
+    [...docInput.files].forEach(f => {
+      if(f.size > MAX_FILE_MB * 1024 * 1024){ tooBig.push(f.name); return; }
+      docs.push(f);
+    });
+    docInput.value = "";
+    $("#docnote").textContent = tooBig.length
+      ? "Skipped (over " + MAX_FILE_MB + " MB): " + tooBig.join(", ")
+      : DOC_HINT;
+    renderDocs();
+  });
+  function prettySize(b){
+    return b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+  }
+  function renderDocs(){
+    flist.innerHTML = "";
+    flist.classList.toggle("has", docs.length > 0);
+    docs.forEach((f, i) => {
+      const r = document.createElement("div"); r.className = "frow";
+      const n = document.createElement("span"); n.className = "fn"; n.textContent = f.name; n.title = f.name;
+      const s = document.createElement("span"); s.className = "fs"; s.textContent = prettySize(f.size);
+      const x = document.createElement("button"); x.className = "x"; x.type = "button";
+      x.setAttribute("aria-label", "Remove " + f.name); x.textContent = "×";
+      x.addEventListener("click", () => { docs.splice(i,1); renderDocs(); });
+      r.appendChild(n); r.appendChild(s); r.appendChild(x);
+      flist.appendChild(r);
+    });
+  }
+
   /* clear errors on edit */
   ["name","otherName","otherTeam","due","link"].forEach(id =>
     $("#"+id).addEventListener("input", () => clearErr(fieldNameFor(id)))
@@ -444,7 +501,7 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
     return "DES-" + Date.now().toString(36).toUpperCase().slice(-5);
   }
 
-  function payloadFor(v, id, attachments){
+  function payloadFor(v, id, attachments, fileAttachments){
     const isOther = v.assigned === "Other";
     return {
       event: "ticket.created",
@@ -461,6 +518,8 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
       notes: briefUntouched() ? "" : v.brief,
       references: files.map(f => f.name),
       attachments: attachments,
+      fileNames: docs.map(f => f.name),
+      fileAttachments: fileAttachments,
       submittedAt: new Date().toISOString()
     };
   }
@@ -475,13 +534,9 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
     });
   }
 
-  async function buildAttachments(){
-    const total = files.reduce((s, f) => s + f.size, 0);
-    if(total > MAX_TOTAL_MB * 1024 * 1024){
-      throw new Error("references total over " + MAX_TOTAL_MB + " MB — remove a few");
-    }
+  async function encode(list){
     const out = [];
-    for(const f of files){
+    for(const f of list){
       out.push({
         name: f.name,
         type: f.type || "application/octet-stream",
@@ -495,16 +550,21 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
     const note = $("#formnote");
     const id = ticketId();
     btn.disabled = true;
-    btn.textContent = files.length ? "Uploading…" : "Sending…";
+    btn.textContent = (files.length || docs.length) ? "Uploading…" : "Sending…";
     note.classList.remove("show");
 
     try {
       if(!/^https?:\/\//i.test(WEBHOOK_URL)) throw new Error("WEBHOOK_URL is not set");
-      const attachments = await buildAttachments();
+      const total = [...files, ...docs].reduce((s, f) => s + f.size, 0);
+      if(total > MAX_TOTAL_MB * 1024 * 1024){
+        throw new Error("images and files total over " + MAX_TOTAL_MB + " MB — remove a few");
+      }
+      const attachments = await encode(files);
+      const fileAttachments = await encode(docs);
       const res = await fetch(WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payloadFor(v, id, attachments))
+        body: JSON.stringify(payloadFor(v, id, attachments, fileAttachments))
       });
       if(!res.ok) throw new Error("Webhook returned " + res.status);
       let data = {};
@@ -541,6 +601,7 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
     if(v.link) rows.push(["Content", v.link]);
     if(v.brief && !briefUntouched()) rows.push(["Brief", v.brief]);
     if(files.length) rows.push(["References", files.length + " image" + (files.length>1?"s":"") + " uploaded to Notion"]);
+    if(docs.length) rows.push(["Files", docs.map(f => f.name).join("\n")]);
     if(notionUrl) rows.push(["Notion", notionUrl]);
 
     $("#sum").innerHTML = rows.map(([k,val]) => {
@@ -578,7 +639,9 @@ textarea.box{resize:vertical;min-height:112px;line-height:1.6}
     prio = "";
     [...prioEl.children].forEach(c => c.classList.remove("on"));
     files.length = 0; renderThumbs();
+    docs.length = 0; renderDocs();
     $("#refnote").textContent = REF_HINT;
+    $("#docnote").textContent = DOC_HINT;
     fieldOf("other").classList.add("hide");
     ["assigned","type"].forEach(id => selPlaceholder($("#"+id)));
     document.querySelectorAll(".field.err").forEach(f => f.classList.remove("err"));
